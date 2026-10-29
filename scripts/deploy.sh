@@ -49,10 +49,10 @@ python3 scripts/configure.py
 ./scripts/production.sh config --quiet
 ./scripts/production.sh build --pull
 if ! ./scripts/production.sh up -d --wait --wait-timeout 180; then
-    echo 'Deployment did not become healthy. Inspect: ./scripts/production.sh logs --tail=100 bot caddy' >&2
+    echo 'Deployment did not become healthy. Inspect: ./scripts/production.sh logs --tail=100 bot' >&2
     echo 'Backup is in backups/. No automatic database rollback was attempted.' >&2
     exit 1
 fi
 ./scripts/production.sh exec -T bot python -c 'import urllib.request; assert urllib.request.urlopen("http://127.0.0.1:8080/health", timeout=5).status == 200'
 ./scripts/production.sh ps
-printf '%s\n' 'Deployment is running.' 'Set the RollyPay callback to https://YOUR-DOMAIN/webhooks/rollypay.' 'Verify HTTPS certificate issuance in Caddy logs and complete a test payment before real sales.'
+printf '%s\n' 'Deployment is running.' 'Payment status is checked through the RollyPay API. No domain or webhook required by this bot.' 'Complete a test payment before real sales.'

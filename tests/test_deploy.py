@@ -20,7 +20,7 @@ class DeploymentTests(unittest.TestCase):
 
     def test_validate_settings_without_printing_values(self):
         self.assertEqual(configure.validate(self.values()), [])
-        for key, value in [('DOMAIN', 'https://bot.test.org'), ('ADMIN_IDS', '-1'),
+        for key, value in [('ADMIN_IDS', '-1'),
                            ('ROLLYPAY_TEST', 'yes'), ('ROLLYPAY_API_KEY', "bad'quote")]:
             values = self.values()
             values[key] = value

@@ -9,12 +9,9 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / '.env.production'
 FIELDS = {
-    'DOMAIN': ('Домен бота (например bot.example.org)', ''),
-    'ACME_EMAIL': ('Почта для HTTPS-сертификата', ''),
     'BOT_TOKEN': ('Токен Telegram-бота', ''),
     'ADMIN_IDS': ('Telegram ID администраторов через запятую', ''),
     'ROLLYPAY_API_KEY': ('API-ключ RollyPay', ''),
-    'ROLLYPAY_SIGNING_SECRET': ('Секрет подписи RollyPay', ''),
     'ROLLYPAY_TEST': ('Тестовые платежи RollyPay: true/false', 'true'),
 }
 SECRET = {'BOT_TOKEN', 'ROLLYPAY_API_KEY', 'ROLLYPAY_SIGNING_SECRET'}
@@ -26,12 +23,6 @@ def validate(values):
         value = values.get(key, '')
         if not value or any(c in value for c in "\r\n'\x00"):
             errors.append(key)
-    domain = values.get('DOMAIN', '')
-    if not re.fullmatch(r'(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}', domain) or domain.endswith('.example.com'):
-        errors.append('DOMAIN')
-    email = values.get('ACME_EMAIL', '')
-    if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or email == 'you@example.com':
-        errors.append('ACME_EMAIL')
     if not re.fullmatch(r'\d+:[A-Za-z0-9_-]+', values.get('BOT_TOKEN', '')):
         errors.append('BOT_TOKEN')
     if not re.fullmatch(r'[1-9]\d*(?:\s*,\s*[1-9]\d*)*', values.get('ADMIN_IDS', '')):

@@ -63,6 +63,9 @@ class Store:
             columns = {row[1] for row in self.db.execute(f'PRAGMA table_info({table})')}
             if 'location' not in columns:
                 self.db.execute(f'ALTER TABLE {table} ADD COLUMN location TEXT')
+        order_columns = {row[1] for row in self.db.execute('PRAGMA table_info(orders)')}
+        if 'next_check' not in order_columns:
+            self.db.execute('ALTER TABLE orders ADD COLUMN next_check REAL NOT NULL DEFAULT 0')
         self.db.commit()
         with self.db:
             if not self.db.execute("SELECT 1 FROM settings WHERE key='initialized'").fetchone():

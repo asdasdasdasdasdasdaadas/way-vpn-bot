@@ -1,47 +1,8 @@
-# Развёртывание на сервере
+# Deployment without webhook
 
-Для автоматической установки из папки проекта выполните `./scripts/deploy.sh`: скрипт запросит настройки, проверит конфигурацию и запустит контейнеры. Для обновления из GitHub — `./scripts/deploy.sh --update`. Docker, Git, Python 3 и flock должны быть установлены заранее. Ниже описаны ручной запуск и восстановление.
+Run `./scripts/deploy.sh` on Linux with Docker Compose, Git, Python 3 and flock. Required settings: BOT_TOKEN, ADMIN_IDS, ROLLYPAY_API_KEY, ROLLYPAY_TEST. No domain, email, signing secret or inbound ports are needed. Payment statuses are polled through the RollyPay API. See README.md for the current setup instructions.
 
-Пакет рассчитан на Linux VPS с Docker Engine и Docker Compose v2. Нужны домен, доступные порты 80/443, токен бота и действующая касса RollyPay. Одна копия бота на один токен. Этот пакет не разворачивает VPN-серверы.
-
-## Первый запуск
-
-1. Распакуйте `vpn-bot-deploy.tar.gz` в отдельную папку на сервере. Домен должен указывать на IP сервера (запись A; если есть AAAA, IPv6 также должен работать). Порты 80/443 должны быть свободны и доступны извне.
-2. Выполните из папки проекта:
-
-   ```sh
-   cp .env.production.example .env.production
-   chmod 600 .env.production
-   ```
-
-3. Заполните `.env.production`: домен без `https://`, почту для сертификата, токен бота, ID администраторов, ключ и секрет RollyPay. Оставьте `ROLLYPAY_TEST=true` для первой проверки. Не переносите локальный `.env` и `data/demo.sqlite3`: это демонстрационные настройки и данные.
-4. Остановите тестового бота на компьютере перед запуском с тем же токеном. Одновременный запуск вызывает конфликты получения сообщений. Локальный тестовый процесс этой подготовкой не остановлен.
-5. Проверьте конфигурацию без печати секретов и запустите:
-
-   ```sh
-   ./scripts/production.sh config --quiet
-   ./scripts/production.sh up -d --build --wait --wait-timeout 180
-   ./scripts/production.sh ps
-   ./scripts/production.sh logs --tail=100 bot caddy
-   ```
-
-Caddy автоматически получит HTTPS-сертификат. Наружу открыты только 80/443; сервер бота и база доступны внутри Docker. Запуск автоматически возобновляется после перезагрузки, если служба Docker включена. Docker healthcheck отмечает сбои, но сам по себе не перезапускает зависший контейнер — следите за статусом и логами.
-
-## Перед реальными платежами
-
-- Укажите в кассе RollyPay `callback_url=https://ВАШ-ДОМЕН/webhooks/rollypay`.
-- Откройте бот, нажмите `/start`, затем `/admin`. Добавьте реальные доступные страны через «Локации». В серверной базе демонстрационные страны не создаются.
-- Проверьте тарифы 1400 ₽/месяц, 4137 ₽/3 месяца, 8148 ₽/6 месяцев и 15792 ₽/год, оплатите в тестовом режиме RollyPay, дождитесь тикета и выдайте тестовую ссылку. Повторное уведомление не должно создавать второй тикет. Тестовая выдача не создаёт реальную подписку.
-- Установите `ROLLYPAY_TEST=false` и выполните `./scripts/production.sh up -d --force-recreate --wait`.
-- Проверьте реальный платёж контролируемой небольшой суммой отдельного тарифа, затем отключите этот тариф.
-
-Демонстрационная имитация принудительно выключена в серверной конфигурации. Тестовые уведомления старых заказов останутся тестовыми даже после переключения на реальные платежи.
-
-Сайт на корневом адресе отвечает 404: это ожидаемо, публично доступен только POST-обработчик платежей. Проверка доступности приложения:
-
-```sh
-./scripts/production.sh exec -T bot python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8080/health').read().decode())"
-```
+If this project previously ran Caddy, stop only this project's Caddy container after verifying its ownership. Do not stop another bot's proxy. The new configuration does not start Caddy.
 
 ## Резервные копии и обновление
 

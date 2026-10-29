@@ -264,6 +264,27 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.bot.handle({'message': {'from': {'id': 99}, 'chat': {'type': 'group'}, 'text': '/admin'}})
         self.assertEqual(self.sent, [])
 
+    async def test_api_poll_confirms_without_webhook_and_handles_refund(self):
+        await self.bot.checkout(1, 1)
+        order = self.s.one('SELECT * FROM orders')
+        self.bot.rolly = AsyncMock(return_value=dict(order_id=order['id'], payment_id=order['payment_id'],
+            amount='1400.00', payment_currency='RUB', status='paid'))
+        await self.bot.sync_payment(order)
+        await self.bot.sync_payment(order)
+        self.assertEqual(len(self.s.all('SELECT * FROM tickets')), 1)
+        self.bot.rolly.return_value['status'] = 'refunded'
+        await self.bot.sync_payment(order)
+        self.assertEqual(self.s.one('SELECT state FROM tickets')['state'], 'blocked')
+
+    async def test_api_poll_rejects_wrong_order(self):
+        await self.bot.checkout(1, 1)
+        order = self.s.one('SELECT * FROM orders')
+        self.bot.rolly = AsyncMock(return_value=dict(order_id='other', payment_id=order['payment_id'],
+            amount='1400.00', payment_currency='RUB', status='paid'))
+        with self.assertRaises(ValueError):
+            await self.bot.sync_payment(order)
+        self.assertEqual(self.s.all('SELECT * FROM tickets'), [])
+
     async def test_demo_payment_requires_admin_and_never_calls_provider(self):
         self.bot.demo = True
         self.bot.test = True

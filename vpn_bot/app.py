@@ -117,7 +117,7 @@ class Bot:
             return
         await self.send(user, f"{order['name']}\nСтрана: {order['location'] or 'не указана'}\nСрок: {order['months']} мес.\nК оплате: {order['amount']} ₽\nПосле оплаты заявка создастся автоматически.",
             [[{'text': 'Оплатить', 'url': result['pay_url']}],
-             [{'text': 'Проверить оплату', 'callback_data': 'check:' + order['id']} ]])
+             [{'text': 'Я оплатил — проверить', 'callback_data': 'check:' + order['id']} ]])
 
     async def check(self, user, order_id):
         order = self.store.one('SELECT * FROM orders WHERE id=? AND user_id=?', (order_id, user))
@@ -126,13 +126,37 @@ class Bot:
         if self.demo:
             await self.send(user, 'ДЕМО. Статус заказа: ' + order['status'])
             return
-        result = await self.rolly('GET', '/api/v1/payments/' + order['payment_id'])
-        # Some GET responses omit test; the signed webhook remains authoritative for such cases.
-        if 'test' in result:
-            result['currency'] = result.get('payment_currency', result.get('currency'))
-            self.store.apply_payment(result)
+        await self.sync_payment(order)
         status = self.store.one('SELECT status FROM orders WHERE id=?', (order_id,))['status']
-        await self.send(user, 'Статус: ' + status + ('\nОжидаем подтверждение уведомлением RollyPay.' if status != 'paid' else ''))
+        await self.send(user, 'Статус: ' + status + ('\nОплата пока не подтверждена. Бот продолжит проверку автоматически.' if status != 'paid' else '\nОплата подтверждена, заявка передана администратору.'))
+
+    async def sync_payment(self, order):
+        result = await self.rolly('GET', '/api/v1/payments/' + order['payment_id'])
+        if result.get('payment_id') != order['payment_id'] or result.get('order_id') != order['id']:
+            raise ValueError('Платёж не соответствует заказу.')
+        # GET may omit test. Only inherit it for the exact ID previously bound to
+        # this order by authenticated creation or a verified webhook, never by user input.
+        result.setdefault('test', bool(order['test']))
+        result['currency'] = result.get('payment_currency', result.get('currency'))
+        self.store.apply_payment(result)
+
+    async def payments_worker(self):
+        while True:
+            if not self.demo:
+                orders = self.store.all("SELECT * FROM orders WHERE payment_id IS NOT NULL AND payment_id NOT LIKE 'demo_%' AND status NOT IN ('refunded','chargeback') AND next_check<=? ORDER BY next_check,created LIMIT 50", (time.time(),))
+                for order in orders:
+                    delay = 60 if order['status'] in {'created', 'processing', 'creating', 'uncertain'} else 3600
+                    try:
+                        await self.sync_payment(order)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        log.warning('Payment status check deferred (order_id=%s)', order['id'])
+                        delay = 300
+                    with self.store.db:
+                        self.store.db.execute('UPDATE orders SET next_check=? WHERE id=?', (time.time() + delay, order['id']))
+                    await asyncio.sleep(0.25)
+            await asyncio.sleep(10)
 
     async def show_ticket(self, user, ticket_id):
         ticket = self.store.one('SELECT t.*,o.user_id,o.name,o.amount,o.months,o.status,o.test,o.location,u.name AS customer FROM tickets t JOIN orders o ON o.id=t.order_id LEFT JOIN users u ON u.id=o.user_id WHERE t.id=?', (ticket_id,))
@@ -160,7 +184,7 @@ class Bot:
         if result.get('order_id') != order_id or result.get('payment_id') != payment_id:
             raise ValueError('Этот платёж не соответствует заказу.')
         if 'test' not in result:
-            raise ValueError('API не вернул признак тестовой оплаты. Запросите повторную доставку вебхука в RollyPay; вручную подтверждать оплату нельзя.')
+            raise ValueError('RollyPay API did not return test mode for this unbound payment. Contact RollyPay support before recovery.')
         result['currency'] = result.get('payment_currency', result.get('currency'))
         self.store.apply_payment(result)
         if str(result.get('pay_url', '')).startswith('https://'):
@@ -460,7 +484,7 @@ class Bot:
 
 async def main():
     demo = os.environ.get('DEMO_MODE', 'false').lower() == 'true'
-    required = ['BOT_TOKEN', 'ADMIN_IDS'] + ([] if demo else ['ROLLYPAY_API_KEY', 'ROLLYPAY_SIGNING_SECRET'])
+    required = ['BOT_TOKEN', 'ADMIN_IDS'] + ([] if demo else ['ROLLYPAY_API_KEY'])
     missing = [key for key in required if not os.environ.get(key)]
     if missing:
         raise SystemExit('Заполните переменные окружения: ' + ', '.join(missing))
@@ -495,7 +519,7 @@ async def main():
             {'command': 'support', 'description': 'Поддержка'}, {'command': 'paysupport', 'description': 'Помощь с оплатой'},
             {'command': 'cancel', 'description': 'Отменить ввод'}, {'command': 'id', 'description': 'Мой Telegram ID'}])
         app = web.Application(client_max_size=64 * 1024)
-        app.router.add_post('/webhooks/rollypay', bot.webhook)
+        # No inbound payment endpoint: statuses are read from authenticated RollyPay API.
         async def health(request):
             return web.json_response({'status': 'ok'})
         app.router.add_get('/health', health)
@@ -503,7 +527,7 @@ async def main():
         await runner.setup()
         await web.TCPSite(runner, os.environ.get('HOST', '127.0.0.1'), int(os.environ.get('PORT', '8080'))).start()
         log.info('Bot started; payment test mode=%s', bot.test)
-        tasks = [asyncio.create_task(bot.poll()), asyncio.create_task(bot.worker())]
+        tasks = [asyncio.create_task(bot.poll()), asyncio.create_task(bot.worker()), asyncio.create_task(bot.payments_worker())]
         try:
             await asyncio.gather(*tasks)
         finally:
