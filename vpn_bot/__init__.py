@@ -1,0 +1,1 @@
+"""Telegram VPN subscription service."""

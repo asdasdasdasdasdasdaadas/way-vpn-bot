@@ -1,0 +1,5 @@
+*
+!Dockerfile
+!requirements.txt
+!vpn_bot/
+!vpn_bot/*.py

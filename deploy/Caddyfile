@@ -1,0 +1,15 @@
+{
+    email {$ACME_EMAIL}
+}
+{$DOMAIN} {
+    @payments {
+        method POST
+        path /webhooks/rollypay
+    }
+    handle @payments {
+        reverse_proxy bot:8080
+    }
+    handle {
+        respond "Not found" 404
+    }
+}
