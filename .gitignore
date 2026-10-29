@@ -10,3 +10,5 @@ data/
 backups/
 dist/
 *.sqlite3
+.deploy.lock
+deploy-history/
